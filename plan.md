@@ -261,7 +261,18 @@ Behavior:
 
 Build: `cd android` then `gradlew assembleDebug`. Output: `android/app/build/outputs/apk/debug/app-debug.apk` (about 40 MB, debug build). Needs Android SDK platform 37.2 (Compose 1.13 needs it) and `local.properties` with `sdk.dir` (gitignored).
 
-Still to do for Phase 2: install on the S25+, measure a 30 second clip, test paste in Discord, check that the output is smooth in Discord.
+**First phone test (2026-11-27, S25+, 13.9 s clip, 2340x1080, about 115 fps, 38.4 MB):**
+
+| Build | Result |
+|---|---|
+| `setFrameRate(60)` only | Wrong. Transformer only copied the stream: 1608 frames, 116 fps, 1.3 s. No effect means no re-encode. |
+| `FrameDropEffect.createDefaultFrameDropEffect(60)` | Works. 822 frames, 59.4 fps average, H.264, converted in **4.0 s** (3.5x real time). A 30 s clip takes about 9 s, so the speed goal is met. No gallery file. |
+
+Open issues from the test:
+- The output is **71.7 MB** (about 41 Mbit/s), almost 2 times the original. The default Media3 bitrate is too high. Set about 12 to 16 Mbit/s.
+- Frame gaps are still uneven (8 to 20 ms, and one 69 ms gap). FrameDropEffect keeps the source timestamps, so the output is not true constant 60 fps. Check in Discord first if this matters.
+
+Still to do for Phase 2: test paste in Discord, check that the output is smooth in Discord.
 
 ### Phase 3: Less waiting
 
