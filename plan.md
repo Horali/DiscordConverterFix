@@ -1,6 +1,6 @@
 # DiscordConverterFix: Plan
 
-Status: planning. No code yet.
+Status: Phase 2 MVP code is built (debug APK). Not yet tested on the phone.
 Last update: 2026-11-27.
 
 ## 1. The problem
@@ -240,6 +240,28 @@ ffmpeg -i in.mp4 -vf fps=60 -c:v libx264 -preset veryfast -crf 23 -c:a copy -mov
 - Convert to 60 fps into the cache, then clipboard or share screen (from the Phase 0 result).
 - Measure the conversion time for a 30 second clip on the S25+.
 - Done when: one tap plus one paste sends a smooth 60 fps clip, no file appears in the gallery, and a 30 second clip converts in 10 seconds or less.
+
+**Status (2026-11-27): code done, builds, not tested on the phone yet.**
+
+What exists in `android/`:
+
+| Part | File | What it does |
+|---|---|---|
+| Clip list | `Clip.kt` | Lists the 30 newest videos from MediaStore, newest first. Filter: "Screen recordings" folder (default) or "All videos". Reads the real average frame rate (frame count / length). |
+| Converter | `Converter.kt` | Media3 Transformer 1.11.1. H.264, `EditedMediaItem.Builder.setFrameRate(60)`, short side scaled down to 1080 only if larger, audio kept, MP4. Hardware encoder. |
+| Cache | `CacheFiles.kt` | Output only in `cacheDir/converted/`. One file at most. Files older than 1 hour are deleted on app start. |
+| Screen | `MainActivity.kt`, `MainViewModel.kt` | Thumbnail, length, resolution, fps, size. Buttons **Copy for Discord** and **Send to Discord**. Progress bar. Shows the conversion time per clip. |
+
+Behavior:
+
+- Clips at 61 fps or less are not converted. The app shares the original.
+- If the same clip is already converted, the app uses the cached file at once.
+- **Send to Discord** opens Discord's own share screen directly. If Discord is not installed, it opens the Android share sheet.
+- The conversion runs while the app is open. There is no foreground service yet (Phase 3).
+
+Build: `cd android` then `gradlew assembleDebug`. Output: `android/app/build/outputs/apk/debug/app-debug.apk` (about 40 MB, debug build). Needs Android SDK platform 37.2 (Compose 1.13 needs it) and `local.properties` with `sdk.dir` (gitignored).
+
+Still to do for Phase 2: install on the S25+, measure a 30 second clip, test paste in Discord, check that the output is smooth in Discord.
 
 ### Phase 3: Less waiting
 
