@@ -6,6 +6,7 @@ import androidx.annotation.OptIn
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.effect.FrameDropEffect
 import androidx.media3.effect.Presentation
 import androidx.media3.transformer.Composition
 import androidx.media3.transformer.EditedMediaItem
@@ -45,13 +46,15 @@ object Converter {
         output: File,
         onProgress: (Int) -> Unit,
     ): ExportResult = withContext(Dispatchers.Main) {
-        val videoEffects = if (shortSide > MAX_SHORT_SIDE) {
-            listOf(Presentation.createForShortSide(MAX_SHORT_SIDE))
-        } else {
-            emptyList()
+        // FrameDropEffect does the real 120 -> 60 fps work. It also forces a re-encode:
+        // without a video effect, Transformer only copies the video stream (tested: output
+        // stayed at 116 fps with setFrameRate alone). The default strategy reads timestamps,
+        // so it also works on variable-frame-rate screen recordings.
+        val videoEffects = buildList {
+            add(FrameDropEffect.createDefaultFrameDropEffect(TARGET_FPS.toFloat()))
+            if (shortSide > MAX_SHORT_SIDE) add(Presentation.createForShortSide(MAX_SHORT_SIDE))
         }
         val item = EditedMediaItem.Builder(MediaItem.fromUri(input))
-            .setFrameRate(TARGET_FPS) // Resamples variable 120 fps to constant 60 fps.
             .setEffects(Effects(emptyList(), videoEffects))
             .build()
 
