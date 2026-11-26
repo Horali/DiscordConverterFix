@@ -272,7 +272,18 @@ Open issues from the test:
 - The output is **71.7 MB** (about 41 Mbit/s), almost 2 times the original. The default Media3 bitrate is too high. Set about 12 to 16 Mbit/s.
 - Frame gaps are still uneven (8 to 20 ms, and one 69 ms gap). FrameDropEffect keeps the source timestamps, so the output is not true constant 60 fps. Check in Discord first if this matters.
 
-Still to do for Phase 2: test paste in Discord, check that the output is smooth in Discord.
+**Owner test in Discord (2026-11-27):** Paste does **not** work. Discord's message box accepts only pasted images and GIFs. Root does not help without a Discord mod (Terms of Service risk), so this is rejected. "Send to Discord" works, but Discord's share screen takes one clip at a time and blocks until it is sent.
+
+**New flow (owner approved a short-lived gallery copy):**
+- **Save for Discord** converts the clip and copies it to the gallery album `Movies/ClipFix/`. In Discord, tap **+**. The copies are at the top of Discord's own picker, and many can be selected at once.
+- A WorkManager job deletes ClipFix's own copies 1 hour after they were added. It deletes only files where the owner package is ClipFix. The clean-up also runs on app start.
+- **Pick videos from gallery** (Android photo picker, up to 30) and list checkboxes convert and save clips in one batch.
+- The Copy button is removed. **Send** stays for a fast single clip.
+- Bitrate is now 14 Mbit/s.
+
+**Phone test of the new flow:** 13.9 s clip converted in 3.4 s, 25.5 MB (was 71.7 MB), 59.4 fps, 822 frames. One file in `Movies/ClipFix/`. Clean-up job scheduled for +60 min. App cache empty after the save.
+
+Still to do: owner checks smoothness in Discord. Not tested yet: the photo picker batch, and the real deletion after 1 hour. Frame gaps are still uneven (see above).
 
 ### Phase 3: Less waiting
 
