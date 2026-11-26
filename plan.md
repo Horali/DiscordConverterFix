@@ -12,6 +12,20 @@ Last update: 2026-11-27.
 
 The goal: send smooth clips to Discord with no manual work each time.
 
+## 1.1 Decisions (answers from the owner, 2026-11-27)
+
+| Question | Answer | Effect on the plan |
+|---|---|---|
+| Record on | Samsung Galaxy S25+ (Android), Samsung built-in screen recorder | Build the **Android app**. The Windows app is not needed. |
+| Send from | Discord Android app | The mobile compressor is the problem to avoid. |
+| Nitro | Yes, usually | Size limit is large (up to 1 GB). Discord mobile "Best Quality" is 1080p. Size is not the main problem. |
+| Clip length | 20 to 30 seconds | Conversion must take a few seconds only. |
+| Keep 120 fps originals | **Yes** | Option 0 (record at 60 fps) is rejected. |
+| Users | Only the owner | No Play Store. Sideload the APK. Less polish needed. |
+| Wish | Send in Discord and get the 60 fps version by itself | **Not possible** without root (see 2.3). Next best: fewest taps. |
+| Storage | **No extra copies in the gallery. No downloads.** | The 60 fps file lives only in a temporary app cache. It is deleted after use. |
+| Flow | New clips show in the app. One button converts fast and puts the clip on the clipboard. Paste in Discord. | New design in section 6.1. |
+
 ## 2. What the research found
 
 ### 2.1 Facts (from Discord's own help pages)
@@ -102,40 +116,47 @@ Build only the platform you need first. Both designs share the same output rules
 | Skip rule | Skip a clip if its frame rate is 61 fps or less | Do not touch clips that are already fine. |
 | Originals | **Never delete or change the original** | Safety. You keep your 120 fps clip. |
 
-### 6.1 Android app (working name: "ClipFix")
+### 6.1 Android app (working name: "ClipFix") — CHOSEN
 
 Use a neutral name. Do not use the Discord logo or name as the app name.
 
-**Two modes:**
+**Main flow (from the owner's wish):**
 
-1. **Share mode (always available).**
-   1. Open a clip in the gallery.
-   2. Tap Share, then tap ClipFix.
-   3. ClipFix converts the clip. A notification shows the progress.
-   4. The Android share sheet opens with the 60 fps file.
-   5. Tap the Discord chat.
-2. **Auto mode (the on/off switch).**
-   1. You turn on Auto mode one time in the settings. It stays on, also after a restart.
-   2. You record a clip as usual.
-   3. ClipFix sees the new video in the recordings folder.
-   4. If the clip is above 61 fps, ClipFix makes a 60 fps copy in a "ClipFix" album.
-   5. A notification says "Ready for Discord". It has a Share button.
-   6. In Discord, the newest video in your gallery is the 60 fps copy. Send it.
+1. You record a clip at 120 fps. The original stays in the gallery, unchanged.
+2. ClipFix shows your newest screen recordings as a list. A notification can also say "New clip".
+3. You tap **Copy for Discord** (or **Send to Discord**) on a clip.
+4. ClipFix converts the clip to 60 fps with the phone's hardware encoder. Target: a few seconds for a 30 second clip.
+5. ClipFix puts the 60 fps clip on the clipboard, or opens Discord's share screen.
+6. In Discord, paste the clip (or tap the chat in the share screen). Send.
+7. ClipFix deletes the 60 fps file from its cache after a short time (for example 1 hour), or when you copy the next clip.
 
-**Catch:** ClipFix cannot change the file inside Discord's upload screen (see 2.3). You still pick the 60 fps copy. But you do no editing.
+**Storage rule:** The 60 fps file never goes into the gallery. It lives in the app's private cache. Only one file exists at a time (about 20 to 60 MB). Android needs a real file for Discord to read, so a short-lived cache file is the minimum.
+
+**Catch 1: we cannot replace the file inside Discord.** The wish "send in Discord and get 60 fps by itself" needs Discord to ask our app, and it does not. Android blocks apps from changing other apps' files. Only a rooted phone can do it. The flow above is the next best thing: 1 tap in ClipFix, 1 paste in Discord.
+
+**Catch 2: clipboard paste of a video into Discord is not proven.** On Android, the clipboard holds a link to the file, not the file. Discord must accept a pasted video from the keyboard (Samsung Keyboard or Gboard). Images work. Videos are unknown. Phase 0 tests this.
+- If paste works: use **Copy for Discord**.
+- If paste fails: use **Send to Discord**. It opens Android's share screen with Discord's recent chats on top. It is the same number of taps and also needs no gallery copy.
+
+**Speed plan:**
+- Media3 Transformer with the hardware H.264 encoder. The S25+ has a fast encoder. Estimate: 3 to 10 seconds for a 30 second 1080p clip. This is not measured yet. Phase 2 measures it.
+- Optional "Prepare in advance" switch: when a new clip appears, ClipFix converts it in the background into the cache. Then Copy is instant. Only the newest clip is kept, so storage stays small.
+
+**Discord setting to check:** In Discord, set Text & Media > Video Uploads to **Best Quality** and turn off **Data Saving Mode**. Else Discord can scale our 60 fps clip down to 720p or 360p.
 
 ```mermaid
 flowchart LR
-    R[You record a 120 fps clip] --> W{Auto mode on?}
-    W -- no --> S[Share to ClipFix by hand]
-    W -- yes --> D[ClipFix sees the new clip]
-    S --> C
-    D --> F{Above 61 fps?}
-    F -- no --> X[Do nothing]
-    F -- yes --> C[Convert to 60 fps CFR, fit size target]
-    C --> N[Notification: Ready for Discord]
-    N --> U[Send the 60 fps copy in Discord]
+    R[You record a 120 fps clip] --> L[ClipFix lists the new clip]
+    L --> T[You tap Copy for Discord]
+    T --> C[Hardware convert to 60 fps into app cache]
+    C --> P{Paste works in Discord?}
+    P -- yes --> V[Paste in Discord chat and send]
+    P -- no --> S[Share screen opens, tap the Discord chat]
+    V --> D[Cache file deleted later]
+    S --> D
 ```
+
+**Later idea (not for version 1):** ClipFix as a file provider. In Discord, "Upload a File" opens Android's file picker. ClipFix could show a "ClipFix 60 fps" source there and convert on open. Discord's own gallery tab does not use this picker, so it helps only part of the time. It is also more complex.
 
 **Technology:**
 
@@ -147,13 +168,13 @@ flowchart LR
 | Long conversions | Foreground service, type `mediaProcessing` (Android 15+) | Android stops background work that runs too long. |
 | Install | Sideload the APK from GitHub Releases | No Play Store account needed. |
 
-**Settings screen:** Auto mode (on/off), recordings folder, resolution (Keep / 1080p / 720p), size target (20 MB / 50 MB / 1 GB), auto-delete old converted copies after N days (copies only, never originals).
+**Settings screen:** recordings folder (default: Samsung's screen recordings folder), resolution (Keep / 1080p / 720p), size target (default: Nitro), "Prepare in advance" (on/off), "New clip" notification (on/off), cache clean-up time.
 
 **Android catches:**
 
-- Android 13+ needs the "videos" permission. Auto mode needs full access, not "selected videos only".
-- Some phone brands (Xiaomi, Oppo, Vivo, Realme and others) stop background apps to save battery. You may need to set ClipFix to "No restrictions" in the battery settings.
-- Each copy uses phone storage. The auto-delete setting handles this.
+- Android 13+ needs the "videos" permission. The clip list needs full access, not "selected videos only".
+- Samsung's battery saver can stop background apps. "Prepare in advance" may need ClipFix set to "Unrestricted" in the battery settings. The tap-to-copy flow works without this.
+- Samsung screen recordings are usually variable frame rate. The converter must make a constant 60 fps.
 
 ### 6.2 Windows tray app (working name: "ClipFix for PC")
 
@@ -197,10 +218,11 @@ ffmpeg -i in.mp4 -vf fps=60 -c:v libx264 -preset veryfast -crf 23 -c:a copy -mov
    ffprobe -v error -select_streams v:0 -show_entries stream=codec_name,width,height,r_frame_rate,avg_frame_rate,nb_frames,bit_rate -of default=nw=1 FILE.mp4
    ```
 
-6. Record a short clip at 60 fps (option 0). Send it. Check if it is smooth.
-7. Write the results in `docs/findings.md`.
+6. In Discord, check that Video Uploads is "Best Quality" and Data Saving Mode is off. Send the 120 fps clip again. Check if it is still choppy.
+7. **Clipboard test:** In the Samsung Gallery, try to copy a video (if your phone offers it). Then long-press the Discord message box and select Paste, or use the keyboard's clipboard. Write down if Discord attaches the video.
+8. Write the results in `docs/findings.md`.
 
-**Decision gate:** If option 0 is good enough and you do not need 120 fps originals, stop here. Else, continue.
+**Decision gate:** If step 6 already fixes the problem, stop here. If not, continue. Step 7 decides "Copy for Discord" or "Send to Discord" as the main button.
 
 ### Phase 1: Output rules and test clips
 
@@ -208,17 +230,19 @@ ffmpeg -i in.mp4 -vf fps=60 -c:v libx264 -preset veryfast -crf 23 -c:a copy -mov
 2. Lock the output rules from section 6.0.
 3. Confirm each converted test clip plays smooth on Discord desktop and Discord mobile.
 
-### Phase 2: Minimum app (manual mode)
+### Phase 2: Minimum app
 
-- Android: Share mode only.
-- Windows: drag-and-drop only.
-- Done when: a 120 fps clip goes in, a smooth 60 fps clip under the size target comes out, and it plays smooth in Discord.
+- A list of the newest screen recordings, and one button per clip.
+- Convert to 60 fps into the cache, then clipboard or share screen (from the Phase 0 result).
+- Measure the conversion time for a 30 second clip on the S25+.
+- Done when: one tap plus one paste sends a smooth 60 fps clip, no file appears in the gallery, and a 30 second clip converts in 10 seconds or less.
 
-### Phase 3: Auto mode with the on/off switch
+### Phase 3: Less waiting
 
-- Android: MediaStore watcher, notification with a Share button.
-- Windows: folder watcher, clipboard copy, tray switch.
-- Done when: you record a clip and the 60 fps copy is ready with zero taps. The switch stays set after a restart.
+- "New clip" notification with the button inside it, so you do not need to open the app.
+- "Prepare in advance" switch, so the copy is instant.
+- Cache clean-up.
+- Done when: the switches stay set after a restart, and the cache never holds more than the newest clip.
 
 ### Phase 4: Polish and release
 
@@ -244,20 +268,18 @@ Build the other app (Android or Windows) only if you need it.
 
 ## 9. Open questions
 
-1. Where do you record clips: phone screen recorder, the Mobile Legends built-in recorder, MuMu Player on PC, or OBS?
-2. Which device do you send clips from: Android phone, iPhone, or PC?
-3. Which phone model? (Battery rules and encoder limits change by brand.)
-4. Do you have Nitro? (This sets the size target.)
-5. How long is a normal clip?
-6. Do you need the 120 fps originals for other places, like TikTok or YouTube? If no, option 0 can be enough.
-7. Is this only for you, or for friends too later? (Friends mean more polish and maybe a Play Store release.)
+All first-round questions have answers (section 1.1). Still open, answered by Phase 0:
+
+1. Does Discord Android accept a pasted video?
+2. Does "Best Quality" plus "Data Saving Mode off" fix the problem alone?
+3. What frame rate and resolution does the Samsung recorder really write? (`ffprobe` shows it.)
 
 ## 10. Definition of done
 
 1. A 120 fps clip sent through ClipFix plays smooth (60 fps) for viewers on Discord desktop and mobile.
-2. You do no editing. At most, you pick the 60 fps copy in Discord.
-3. The on/off switch works and stays set after a restart.
-4. The file fits your upload limit.
+2. You do no editing: 1 tap in ClipFix, 1 paste (or 1 tap) in Discord.
+3. A 30 second clip is ready in 10 seconds or less.
+4. No extra file in the gallery. The cache holds one clip at most and cleans itself.
 5. The original 120 fps clip stays unchanged.
 
 ## 11. Planned repo layout
