@@ -3,8 +3,6 @@ package dev.horali.clipfix
 import android.Manifest
 import android.content.ActivityNotFoundException
 import android.content.ClipData
-import android.content.ClipDescription
-import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -16,7 +14,11 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.Surface
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.isSystemInDarkTheme
@@ -87,6 +89,7 @@ class MainActivity : ComponentActivity() {
 
 private const val VIDEO_PERMISSION = Manifest.permission.READ_MEDIA_VIDEO
 private const val DISCORD_PACKAGE = "com.discord"
+private const val MAX_PICK = 30
 
 private fun hasVideoPermission(context: Context) =
     ContextCompat.checkSelfPermission(context, VIDEO_PERMISSION) ==
@@ -104,6 +107,16 @@ private fun ClipFixApp(vm: MainViewModel = viewModel()) {
         ActivityResultContracts.RequestPermission(),
     ) { ok -> granted = ok }
 
+    // Android's photo picker: select many old clips at once.
+    val pickLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.PickMultipleVisualMedia(MAX_PICK),
+    ) { uris -> vm.onPicked(uris) }
+    val openPicker = {
+        pickLauncher.launch(
+            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.VideoOnly),
+        )
+    }
+
     // Check again when the user comes back, for example from the app settings.
     LifecycleResumeEffect(Unit) {
         granted = hasVideoPermission(context)
@@ -112,17 +125,9 @@ private fun ClipFixApp(vm: MainViewModel = viewModel()) {
     }
     LaunchedEffect(granted) { if (granted) vm.onPermissionGranted() }
 
-    // Do the copy or share when a file is ready.
+    // Open the share screen when a file is ready.
     LaunchedEffect(Unit) {
-        vm.shareRequests.collect { req ->
-            when (req.action) {
-                ShareAction.COPY -> {
-                    copyToClipboard(context, req.uri, req.mimeType)
-                    vm.showMessage("Copied. Open Discord and paste in the message box.")
-                }
-                ShareAction.SEND -> sendToDiscord(context, req.uri, req.mimeType)
-            }
-        }
+        vm.shareRequests.collect { req -> sendToDiscord(context, req.uri, req.mimeType) }
     }
     LaunchedEffect(state.message) {
         state.message?.let {
@@ -134,6 +139,26 @@ private fun ClipFixApp(vm: MainViewModel = viewModel()) {
     Scaffold(
         topBar = { TopAppBar(title = { Text("ClipFix") }) },
         snackbarHost = { SnackbarHost(snackbar) },
+        bottomBar = {
+            if (granted && state.selected.isNotEmpty()) {
+                Surface(tonalElevation = 3.dp) {
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .navigationBarsPadding()
+                            .padding(12.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Button(
+                            onClick = vm::saveSelected,
+                            enabled = !state.busy,
+                            modifier = Modifier.weight(1f),
+                        ) { Text("Save ${state.selected.size} for Discord") }
+                        OutlinedButton(onClick = vm::clearSelection) { Text("Clear") }
+                    }
+                }
+            }
+        },
     ) { padding ->
         Box(Modifier.padding(padding).fillMaxSize()) {
             if (!granted) {
@@ -149,7 +174,7 @@ private fun ClipFixApp(vm: MainViewModel = viewModel()) {
                     },
                 )
             } else {
-                ClipList(state, vm)
+                ClipList(state, vm, openPicker)
             }
         }
     }
@@ -179,11 +204,47 @@ private fun PermissionScreen(onRequest: () -> Unit, onOpenSettings: () -> Unit) 
 }
 
 @Composable
-private fun ClipList(state: UiState, vm: MainViewModel) {
+private fun ClipList(state: UiState, vm: MainViewModel, openPicker: () -> Unit) {
+    @Composable
+    fun Card(clip: Clip) = ClipCard(
+        clip = clip,
+        probe = state.probes[clip.id],
+        selected = clip.id in state.selected,
+        busy = state.busyClipId == clip.id,
+        anyBusy = state.busy,
+        progress = state.progress,
+        result = state.results[clip.id],
+        onToggle = { vm.toggleSelected(clip) },
+        onSave = { vm.saveToGallery(listOf(clip)) },
+        onSend = { vm.send(clip) },
+    )
+
     LazyColumn(
         contentPadding = PaddingValues(12.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
+        item {
+            Button(
+                onClick = openPicker,
+                enabled = !state.busy,
+                modifier = Modifier.fillMaxWidth(),
+            ) { Text("Pick videos from gallery") }
+        }
+        if (state.busy) {
+            item {
+                Text(
+                    "Working on ${state.batchIndex} of ${state.batchTotal}… ${state.progress}%. " +
+                        "Keep ClipFix open.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+            }
+        }
+        if (state.picked.isNotEmpty()) {
+            item { Text("Picked", style = MaterialTheme.typography.titleSmall) }
+            items(state.picked, key = { "p" + it.id }) { Card(it) }
+            item { Text("Newest", style = MaterialTheme.typography.titleSmall) }
+        }
         item {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 FilterChip(
@@ -210,18 +271,7 @@ private fun ClipList(state: UiState, vm: MainViewModel) {
                 )
             }
         }
-        items(state.clips, key = { it.id }) { clip ->
-            ClipCard(
-                clip = clip,
-                probe = state.probes[clip.id],
-                busy = state.busyClipId == clip.id,
-                anyBusy = state.busyClipId != null,
-                progress = state.progress,
-                result = state.results[clip.id],
-                onCopy = { vm.prepare(clip, ShareAction.COPY) },
-                onSend = { vm.prepare(clip, ShareAction.SEND) },
-            )
-        }
+        items(state.clips, key = { it.id }) { Card(it) }
     }
 }
 
@@ -229,11 +279,13 @@ private fun ClipList(state: UiState, vm: MainViewModel) {
 private fun ClipCard(
     clip: Clip,
     probe: ClipProbe?,
+    selected: Boolean,
     busy: Boolean,
     anyBusy: Boolean,
     progress: Int,
     result: String?,
-    onCopy: () -> Unit,
+    onToggle: () -> Unit,
+    onSave: () -> Unit,
     onSend: () -> Unit,
 ) {
     val context = LocalContext.current
@@ -243,6 +295,7 @@ private fun ClipCard(
     Card(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
+                Checkbox(checked = selected, onCheckedChange = { onToggle() }, enabled = !anyBusy)
                 Box(
                     Modifier
                         .size(72.dp)
@@ -271,8 +324,10 @@ private fun ClipCard(
                         probe.fps == null -> "fps unknown"
                         else -> MainViewModel.fmtFps(probe.fps)
                     }
+                    val w = probe?.width?.takeIf { it > 0 } ?: clip.width
+                    val h = probe?.height?.takeIf { it > 0 } ?: clip.height
                     Text(
-                        "${fmtDuration(clip.durationMs)} · ${clip.width}×${clip.height} · $fpsText",
+                        "${fmtDuration(clip.durationMs)} · ${w}×${h} · $fpsText",
                         style = MaterialTheme.typography.bodySmall,
                     )
                     Text(
@@ -283,11 +338,11 @@ private fun ClipCard(
             }
             Spacer(Modifier.height(8.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(onClick = onCopy, enabled = !anyBusy, modifier = Modifier.weight(1f)) {
-                    Text("Copy for Discord")
+                Button(onClick = onSave, enabled = !anyBusy, modifier = Modifier.weight(1f)) {
+                    Text("Save for Discord")
                 }
                 OutlinedButton(onClick = onSend, enabled = !anyBusy, modifier = Modifier.weight(1f)) {
-                    Text("Send to Discord")
+                    Text("Send")
                 }
             }
             if (busy) {
@@ -309,16 +364,6 @@ private fun ClipCard(
 private fun fmtDuration(ms: Long): String {
     val s = ms / 1000
     return String.format(Locale.US, "%d:%02d", s / 60, s % 60)
-}
-
-/** Puts a content:// link to the video on the clipboard. The paste target gets read access. */
-private fun copyToClipboard(context: Context, uri: Uri, mimeType: String) {
-    val cm = context.getSystemService(ClipboardManager::class.java)
-    val clip = ClipData(
-        ClipDescription("ClipFix video", arrayOf(mimeType)),
-        ClipData.Item(uri),
-    )
-    cm.setPrimaryClip(clip)
 }
 
 /** Opens Discord's share screen directly. Falls back to the Android share sheet. */

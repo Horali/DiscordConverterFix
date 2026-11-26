@@ -10,6 +10,7 @@ import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.os.Bundle
 import android.provider.MediaStore
+import android.provider.OpenableColumns
 import android.util.Size
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -63,18 +64,20 @@ object ClipRepository {
                     ContentResolver.QUERY_SORT_DIRECTION_DESCENDING,
                 )
                 putInt(ContentResolver.QUERY_ARG_LIMIT, MAX_CLIPS)
+                val path = MediaStore.Video.Media.RELATIVE_PATH
+                // Never list our own 60 fps copies.
+                var selection = "$path NOT LIKE ?"
+                val selectionArgs = mutableListOf(GalleryFiles.RELATIVE_DIR + "%")
                 if (screenRecordingsOnly) {
                     // Samsung writes to "DCIM/Screen recordings/". LIKE ignores case here.
-                    putString(
-                        ContentResolver.QUERY_ARG_SQL_SELECTION,
-                        "${MediaStore.Video.Media.RELATIVE_PATH} LIKE ? OR " +
-                            "${MediaStore.Video.Media.RELATIVE_PATH} LIKE ?",
-                    )
-                    putStringArray(
-                        ContentResolver.QUERY_ARG_SQL_SELECTION_ARGS,
-                        arrayOf("%screen record%", "%screenrecord%"),
-                    )
+                    selection += " AND ($path LIKE ? OR $path LIKE ?)"
+                    selectionArgs += listOf("%screen record%", "%screenrecord%")
                 }
+                putString(ContentResolver.QUERY_ARG_SQL_SELECTION, selection)
+                putStringArray(
+                    ContentResolver.QUERY_ARG_SQL_SELECTION_ARGS,
+                    selectionArgs.toTypedArray(),
+                )
             }
             val clips = mutableListOf<Clip>()
             context.contentResolver.query(collection, projection, args, null)?.use { c ->
@@ -101,6 +104,44 @@ object ClipRepository {
             }
             clips
         }
+
+    /** Makes a [Clip] from a video the user picked in the photo picker. */
+    suspend fun fromPickedUri(context: Context, uri: Uri): Clip = withContext(Dispatchers.IO) {
+        var name = "video.mp4"
+        var size = 0L
+        context.contentResolver.query(
+            uri,
+            arrayOf(OpenableColumns.DISPLAY_NAME, OpenableColumns.SIZE),
+            null,
+            null,
+            null,
+        )?.use { c ->
+            if (c.moveToFirst()) {
+                c.getString(0)?.let { name = it }
+                size = c.getLong(1)
+            }
+        }
+        var durationMs = 0L
+        val retriever = MediaMetadataRetriever()
+        try {
+            retriever.setDataSource(context, uri)
+            durationMs = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
+                ?.toLongOrNull() ?: 0L
+        } catch (_: Exception) {
+        } finally {
+            retriever.release()
+        }
+        Clip(
+            id = uri.toString().hashCode().toLong(),
+            uri = uri,
+            name = name,
+            durationMs = durationMs,
+            width = 0,
+            height = 0,
+            sizeBytes = size,
+            mimeType = context.contentResolver.getType(uri) ?: "video/mp4",
+        )
+    }
 
     /**
      * Reads the real average frame rate: frame count divided by length.
