@@ -58,6 +58,40 @@ object GalleryFiles {
             uri
         }
 
+    /** One 60 fps copy in the ClipFix album. */
+    data class SavedCopy(val uri: Uri, val expiresAtMs: Long)
+
+    /** The name of the copy for a source clip. The same clip always gets the same name. */
+    fun copyName(sourceName: String): String =
+        "ClipFix_" + sourceName.substringBeforeLast('.').take(60) + "_60fps.mp4"
+
+    /** Our copies that still exist, by display name. */
+    suspend fun listOwn(context: Context): Map<String, SavedCopy> = withContext(Dispatchers.IO) {
+        val result = mutableMapOf<String, SavedCopy>()
+        val projection = arrayOf(
+            MediaStore.Video.Media._ID,
+            MediaStore.Video.Media.DISPLAY_NAME,
+            MediaStore.Video.Media.DATE_ADDED,
+        )
+        val selection = "${MediaStore.Video.Media.RELATIVE_PATH} = ? AND " +
+            "${MediaStore.Video.Media.OWNER_PACKAGE_NAME} = ?"
+        val args = arrayOf(RELATIVE_DIR, context.packageName)
+        try {
+            context.contentResolver.query(collection(), projection, selection, args, null)
+                ?.use { c ->
+                    while (c.moveToNext()) {
+                        val name = c.getString(1) ?: continue
+                        result[name] = SavedCopy(
+                            uri = ContentUris.withAppendedId(collection(), c.getLong(0)),
+                            expiresAtMs = c.getLong(2) * 1000 + MAX_AGE_MS,
+                        )
+                    }
+                }
+        } catch (_: Exception) {
+        }
+        result
+    }
+
     /**
      * Deletes ClipFix copies older than 1 hour.
      * Returns the time in ms until the next copy expires, or null if no copy is left.
