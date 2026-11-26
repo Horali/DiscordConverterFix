@@ -222,6 +222,10 @@ ffmpeg -i in.mp4 -vf fps=60 -c:v libx264 -preset veryfast -crf 23 -c:a copy -mov
 7. **Clipboard test:** In the Samsung Gallery, try to copy a video (if your phone offers it). Then long-press the Discord message box and select Paste, or use the keyboard's clipboard. Write down if Discord attaches the video.
 8. Write the results in `docs/findings.md`.
 
+**Result so far (2026-11-27):** The owner's Discord was on Video Uploads = **Standard** (720p with Nitro) and Data Saving Mode = **off**. Clips were still choppy. Still to test: **Best Quality** (1080p with Nitro). Do not use "Data Saver": it lowers the clip to 360p, so it cannot help. The owner approved the start of the app build in parallel.
+
+**Build environment (owner's Windows PC):** Android Studio installed, Android SDK in `%LOCALAPPDATA%\Android\Sdk` (platform-tools, build-tools, platforms, NDK), JDK 17 (`JAVA_HOME` set), `adb` in the SDK `platform-tools` folder (not on `PATH`). `ANDROID_HOME` is not set. No global Gradle: use the Gradle wrapper.
+
 **Decision gate:** If step 6 already fixes the problem, stop here. If not, continue. Step 7 decides "Copy for Discord" or "Send to Discord" as the main button.
 
 ### Phase 1: Output rules and test clips
