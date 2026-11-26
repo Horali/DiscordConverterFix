@@ -9,6 +9,8 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.effect.FrameDropEffect
 import androidx.media3.effect.Presentation
 import androidx.media3.transformer.Composition
+import androidx.media3.transformer.DefaultEncoderFactory
+import androidx.media3.transformer.VideoEncoderSettings
 import androidx.media3.transformer.EditedMediaItem
 import androidx.media3.transformer.Effects
 import androidx.media3.transformer.ExportException
@@ -34,6 +36,7 @@ object Converter {
 
     const val TARGET_FPS = 60
     private const val MAX_SHORT_SIDE = 1080
+    private const val VIDEO_BITRATE = 14_000_000
 
     /**
      * Runs the export. [onProgress] gets 0..100.
@@ -59,8 +62,16 @@ object Converter {
             .build()
 
         val done = CompletableDeferred<ExportResult>()
+        // The default bitrate was about 41 Mbit/s (2x the original). Discord compresses
+        // the clip again anyway, so 14 Mbit/s keeps quality and halves the upload.
+        val encoderFactory = DefaultEncoderFactory.Builder(context)
+            .setRequestedVideoEncoderSettings(
+                VideoEncoderSettings.Builder().setBitrate(VIDEO_BITRATE).build(),
+            )
+            .build()
         val transformer = Transformer.Builder(context)
             .setVideoMimeType(MimeTypes.VIDEO_H264)
+            .setEncoderFactory(encoderFactory)
             .addListener(object : Transformer.Listener {
                 override fun onCompleted(composition: Composition, exportResult: ExportResult) {
                     done.complete(exportResult)
