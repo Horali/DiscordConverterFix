@@ -1,0 +1,40 @@
+# Video and media (never commit clips)
+*.mp4
+*.mov
+*.mkv
+*.webm
+*.avi
+*.m4v
+*.ts
+*.png
+*.jpg
+*.jpeg
+*.gif
+testclips/
+
+# Secrets
+.env
+.env.*
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+dist/
+build/
+
+# Node
+node_modules/
+
+# Android / Gradle
+.gradle/
+local.properties
+*.apk
+*.aab
+android/app/build/
+
+# IDE and OS
+.idea/
+.vscode/
+Thumbs.db
+.DS_Store
