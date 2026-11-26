@@ -105,8 +105,47 @@ object ClipRepository {
             clips
         }
 
-    /** Makes a [Clip] from a video the user picked in the photo picker. */
+    /** Reads one video from MediaStore by its id, or null. */
+    private fun loadById(context: Context, id: Long): Clip? {
+        val collection = MediaStore.Video.Media.getContentUri(MediaStore.VOLUME_EXTERNAL)
+        val uri = ContentUris.withAppendedId(collection, id)
+        val projection = arrayOf(
+            MediaStore.Video.Media.DISPLAY_NAME,
+            MediaStore.Video.Media.DURATION,
+            MediaStore.Video.Media.WIDTH,
+            MediaStore.Video.Media.HEIGHT,
+            MediaStore.Video.Media.SIZE,
+            MediaStore.Video.Media.MIME_TYPE,
+        )
+        return try {
+            context.contentResolver.query(uri, projection, null, null, null)?.use { c ->
+                if (!c.moveToFirst()) return null
+                Clip(
+                    id = id,
+                    uri = uri,
+                    name = c.getString(0) ?: return null,
+                    durationMs = c.getLong(1),
+                    width = c.getInt(2),
+                    height = c.getInt(3),
+                    sizeBytes = c.getLong(4),
+                    mimeType = c.getString(5) ?: "video/mp4",
+                )
+            }
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    /**
+     * Makes a [Clip] from a video the user picked in the photo picker.
+     * The picker gives a number as the name. The last part of its link is the MediaStore id,
+     * so we read the real gallery entry. Then the picked clip and the list clip are the same
+     * clip, with the same copy name.
+     */
     suspend fun fromPickedUri(context: Context, uri: Uri): Clip = withContext(Dispatchers.IO) {
+        uri.lastPathSegment?.toLongOrNull()?.let { id ->
+            loadById(context, id)?.let { return@withContext it }
+        }
         var name = "video.mp4"
         var size = 0L
         context.contentResolver.query(
