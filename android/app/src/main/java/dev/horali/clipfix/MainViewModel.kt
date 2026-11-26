@@ -45,9 +45,18 @@ data class UiState(
     /** Per clip: the last result line, for example the conversion time. */
     val results: Map<Long, String> = emptyMap(),
     val message: String? = null,
+    /** Our copies in the ClipFix album, by display name. */
+    val savedCopies: Map<String, GalleryFiles.SavedCopy> = emptyMap(),
+    /** Picked clips that wait for an answer: some already have a copy. */
+    val pendingPick: PendingPick? = null,
 ) {
     val busy get() = batchTotal > 0
+
+    fun copyOf(clip: Clip): GalleryFiles.SavedCopy? =
+        savedCopies[GalleryFiles.copyName(clip.name)]
 }
+
+data class PendingPick(val clips: List<Clip>, val alreadySaved: Int)
 
 class MainViewModel(app: Application) : AndroidViewModel(app) {
 
@@ -109,7 +118,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 Log.e(TAG, "Cannot list videos", e)
                 emptyList()
             }
-            _state.update { it.copy(clips = clips, loading = false) }
+            val saved = GalleryFiles.listOwn(ctx)
+            _state.update { it.copy(clips = clips, loading = false, savedCopies = saved) }
             for (clip in clips) probeIfNeeded(clip)
         }
     }
@@ -127,18 +137,43 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             val ctx = getApplication<Application>()
             val clips = uris.map { ClipRepository.fromPickedUri(ctx, it) }
+            val saved = GalleryFiles.listOwn(ctx)
             _state.update { s ->
                 val newIds = clips.map { it.id }.toSet()
-                s.copy(picked = clips + s.picked.filter { it.id !in newIds })
+                s.copy(
+                    picked = clips + s.picked.filter { it.id !in newIds },
+                    savedCopies = saved,
+                )
             }
-            runSaveBatch(clips)
+            val already = clips.count { _state.value.copyOf(it) != null }
+            if (already > 0) {
+                // Ask first. Never make a second copy without a clear "yes".
+                _state.update { it.copy(pendingPick = PendingPick(clips, already)) }
+            } else {
+                runSaveBatch(clips)
+            }
         }
     }
 
-    /** Saves the selected list clips to the gallery album. */
+    /** The answer to the "already saved" question for picked clips. */
+    fun answerPendingPick(makeNewCopies: Boolean?) {
+        val pending = _state.value.pendingPick ?: return
+        _state.update { it.copy(pendingPick = null) }
+        if (makeNewCopies == null) return // Cancel.
+        val clips = if (makeNewCopies) {
+            pending.clips
+        } else {
+            pending.clips.filter { _state.value.copyOf(it) == null }
+        }
+        saveToGallery(clips)
+    }
+
+    /** Saves the selected clips to the gallery album. Clips with a copy are skipped. */
     fun saveSelected() {
         val s = _state.value
-        val clips = (s.picked + s.clips).filter { it.id in s.selected }.distinctBy { it.id }
+        val clips = (s.picked + s.clips)
+            .filter { it.id in s.selected && s.copyOf(it) == null }
+            .distinctBy { it.id }
         saveToGallery(clips)
         clearSelection()
     }
@@ -156,8 +191,10 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             try {
                 val file = convertToCache(clip)
                 if (file != null) {
-                    GalleryFiles.save(ctx, file, galleryName(clip))
+                    GalleryFiles.save(ctx, file, GalleryFiles.copyName(clip.name))
                     file.delete()
+                    val copies = GalleryFiles.listOwn(ctx)
+                    _state.update { it.copy(savedCopies = copies) }
                     appendResult(clip.id, "Saved to the ClipFix album. It deletes itself after 1 hour.")
                     saved++
                 }
@@ -177,6 +214,11 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     /** Converts one clip and opens the share screen (Discord first). */
     fun send(clip: Clip) {
         if (_state.value.busy) return
+        // A copy in the album is already 60 fps: share it, do not convert again.
+        _state.value.copyOf(clip)?.let { copy ->
+            viewModelScope.launch { _shareRequests.send(ShareRequest(copy.uri, "video/mp4")) }
+            return
+        }
         viewModelScope.launch {
             _state.update { it.copy(batchIndex = 1, batchTotal = 1) }
             try {
@@ -246,9 +288,6 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         setResult(clip.id, line)
         return finalFile
     }
-
-    private fun galleryName(clip: Clip): String =
-        "ClipFix_" + clip.name.substringBeforeLast('.').take(60) + "_60fps.mp4"
 
     fun showMessage(text: String) = _state.update { it.copy(message = text) }
 

@@ -17,7 +17,9 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Checkbox
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.Surface
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -129,6 +131,28 @@ private fun ClipFixApp(vm: MainViewModel = viewModel()) {
     LaunchedEffect(Unit) {
         vm.shareRequests.collect { req -> sendToDiscord(context, req.uri, req.mimeType) }
     }
+    state.pendingPick?.let { pending ->
+        val newCount = pending.clips.size - pending.alreadySaved
+        AlertDialog(
+            onDismissRequest = { vm.answerPendingPick(null) },
+            title = { Text("Already saved") },
+            text = {
+                Text(
+                    "${pending.alreadySaved} of the ${pending.clips.size} clips already have " +
+                        "a 60 fps copy in the ClipFix album. A new copy makes a duplicate.",
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = { vm.answerPendingPick(false) }) {
+                    Text(if (newCount > 0) "Save only the $newCount new" else "OK")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { vm.answerPendingPick(true) }) { Text("Make new copies") }
+            },
+        )
+    }
+
     LaunchedEffect(state.message) {
         state.message?.let {
             snackbar.showSnackbar(it)
@@ -209,6 +233,7 @@ private fun ClipList(state: UiState, vm: MainViewModel, openPicker: () -> Unit) 
     fun Card(clip: Clip) = ClipCard(
         clip = clip,
         probe = state.probes[clip.id],
+        savedCopy = state.copyOf(clip),
         selected = clip.id in state.selected,
         busy = state.busyClipId == clip.id,
         anyBusy = state.busy,
@@ -241,7 +266,12 @@ private fun ClipList(state: UiState, vm: MainViewModel, openPicker: () -> Unit) 
             }
         }
         if (state.picked.isNotEmpty()) {
-            item { Text("Picked", style = MaterialTheme.typography.titleSmall) }
+            item {
+                Text(
+                    "Picked (ClipFix saves picked clips at once)",
+                    style = MaterialTheme.typography.titleSmall,
+                )
+            }
             items(state.picked, key = { "p" + it.id }) { Card(it) }
             item { Text("Newest", style = MaterialTheme.typography.titleSmall) }
         }
@@ -279,6 +309,7 @@ private fun ClipList(state: UiState, vm: MainViewModel, openPicker: () -> Unit) 
 private fun ClipCard(
     clip: Clip,
     probe: ClipProbe?,
+    savedCopy: GalleryFiles.SavedCopy?,
     selected: Boolean,
     busy: Boolean,
     anyBusy: Boolean,
@@ -295,7 +326,11 @@ private fun ClipCard(
     Card(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Checkbox(checked = selected, onCheckedChange = { onToggle() }, enabled = !anyBusy)
+                Checkbox(
+                    checked = selected && savedCopy == null,
+                    onCheckedChange = { onToggle() },
+                    enabled = !anyBusy && savedCopy == null,
+                )
                 Box(
                     Modifier
                         .size(72.dp)
@@ -338,8 +373,19 @@ private fun ClipCard(
             }
             Spacer(Modifier.height(8.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(onClick = onSave, enabled = !anyBusy, modifier = Modifier.weight(1f)) {
-                    Text("Save for Discord")
+                if (savedCopy == null) {
+                    Button(onClick = onSave, enabled = !anyBusy, modifier = Modifier.weight(1f)) {
+                        Text("Save for Discord")
+                    }
+                } else {
+                    val minutes = ((savedCopy.expiresAtMs - System.currentTimeMillis()) / 60_000)
+                        .coerceAtLeast(0)
+                    Text(
+                        "Saved ✓ in the ClipFix album. Deletes in about $minutes min.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.weight(1f).align(Alignment.CenterVertically),
+                    )
                 }
                 OutlinedButton(onClick = onSend, enabled = !anyBusy, modifier = Modifier.weight(1f)) {
                     Text("Send")
